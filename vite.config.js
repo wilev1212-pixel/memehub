@@ -6,6 +6,6 @@ export default defineConfig({
   preview: {
     port: 8080,
     host: true,
-    allowedHosts: ['memehub92i.up.railway.app'],
+    allowedHosts: ['thememehub.up.railway.app'],
   },
 })
