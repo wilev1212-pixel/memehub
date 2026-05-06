@@ -304,6 +304,15 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
+  // ── DELETE MEME ──
+  const deleteMeme = async (id) => {
+    if (!window.confirm("Supprimer ce mème définitivement ?")) return;
+    setMemes(p => p.filter(m => m.id !== id));
+    if (detailMeme?.id === id) setDetailMeme(null);
+    showToast("Mème supprimé 🗑️");
+    await db.deleteMeme(id);
+  };
+
   // ── PUBLISH ──
   const publishMeme = async () => {
     if (needAuth("create")) return;
@@ -407,6 +416,10 @@ export default function App() {
             <div style={{ display:"flex", alignItems:"center" }}>
               <VoteBar m={m} sp />
               <span style={{ fontSize:11, color:"#444", marginLeft:"auto" }}>💬 {(comments[m.id]||[]).length}</span>
+              {m.author === username && (
+                <button style={{ background:"transparent", border:"none", color:"#c03030", fontSize:14, cursor:"pointer", marginLeft:8 }}
+                  onClick={e=>{ e.stopPropagation(); deleteMeme(m.id); }}>🗑️</button>
+              )}
             </div>
           </div>
         </div>
