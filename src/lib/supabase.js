@@ -60,6 +60,9 @@ export const updateMemeLikes = (id, likes, dislikes) =>
     body: JSON.stringify({ likes, dislikes }),
   });
 
+export const deleteMeme = (id) =>
+  api(`/memes?id=eq.${id}`, { method: "DELETE" });
+
 // ── USERS ──────────────────────────────────────────────────
 export const getUsers = () => api("/users?select=username,created_at");
 
