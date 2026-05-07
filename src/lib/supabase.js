@@ -66,9 +66,6 @@ export const deleteMeme = (id) =>
 // ── USERS ──────────────────────────────────────────────────
 export const getUsers = () => api("/users?select=username,created_at");
 
-export const getUserByName = (username) =>
-  api(`/users?username=eq.${encodeURIComponent(username)}&select=username,password,created_at`);
-
 export const insertUser = (username, password) =>
   api("/users", {
     method: "POST",
