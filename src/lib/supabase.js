@@ -156,6 +156,6 @@ export const updateComment = (id, text) =>
 export const deleteUser = (username) =>
   api(`/users?username=eq.${encodeURIComponent(username)}`, { method: "DELETE" });
 
-export const getAllUsers = () =>
-  api("/users?select=username,is_admin,created_at&order=created_at.desc");
+export const getUserByName = (username) =>
+  api(`/users?username=eq.${encodeURIComponent(username)}&select=username,password,created_at,is_admin`);
 
