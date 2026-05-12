@@ -66,6 +66,9 @@ export const deleteMeme = (id) =>
 // ── USERS ──────────────────────────────────────────────────
 export const getUsers = () => api("/users?select=username,created_at");
 
+export const getUserByName = (username) =>
+  api(`/users?username=eq.${encodeURIComponent(username)}&select=username,password,created_at`);
+
 export const insertUser = (username, password) =>
   api("/users", {
     method: "POST",
@@ -101,6 +104,7 @@ export const insertComment = (c) =>
       author: c.author,
       text: c.text,
       likes: 0,
+      parent_id: c.parentId || null,
     }),
   });
 
@@ -140,6 +144,21 @@ export const deleteFollow = (follower, followed) =>
     method: "DELETE",
   });
 
+// ── FAVORITES ──────────────────────────────────────────────
+export const getFavorites = (userId) =>
+  api(`/favorites?user_id=eq.${encodeURIComponent(userId)}`);
+
+export const insertFavorite = (userId, memeId) =>
+  api("/favorites", {
+    method: "POST",
+    body: JSON.stringify({ user_id: userId, meme_id: memeId }),
+  });
+
+export const deleteFavorite = (userId, memeId) =>
+  api(`/favorites?user_id=eq.${encodeURIComponent(userId)}&meme_id=eq.${memeId}`, {
+    method: "DELETE",
+  });
+
 // ── ADMIN ───────────────────────────────────────────────────
 export const deleteComment = (id) =>
   api(`/comments?id=eq.${id}`, { method: "DELETE" });
@@ -153,6 +172,5 @@ export const updateComment = (id, text) =>
 export const deleteUser = (username) =>
   api(`/users?username=eq.${encodeURIComponent(username)}`, { method: "DELETE" });
 
-export const getUserByName = (username) =>
-  api(`/users?username=eq.${encodeURIComponent(username)}&select=username,password,created_at,is_admin`);
-
+export const getAllUsers = () =>
+  api("/users?select=username,is_admin,created_at&order=created_at.desc");
