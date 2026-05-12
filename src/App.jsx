@@ -72,7 +72,7 @@ const TEMPLATES = [
 const BG_PREFIX = "bg:";
 const isBg = url => url?.startsWith(BG_PREFIX);
 const getBg = url => url?.slice(BG_PREFIX.length);
-const mkTxt = (text="TEXTE", x=50, y=10) => ({ id:uid(), text, x, y, fontSize:36, color:"#ffffff", bold:true });
+const mkTxt = (text="TEXTE", x=50, y=10) => ({ id:uid(), text, x, y, fontSize:36, color:"#ffffff", bold:true, width:60 });
 
 const txtStyle = (t, extra={}) => ({
   fontFamily:"Impact,'Arial Black',sans-serif",
@@ -81,7 +81,7 @@ const txtStyle = (t, extra={}) => ({
   textTransform:"uppercase",
   textShadow:"2px 2px 0 #000,-2px 2px 0 #000,2px -2px 0 #000,-2px -2px 0 #000",
   lineHeight:1.2, whiteSpace:"pre-wrap", textAlign:"center", display:"block",
-  pointerEvents:"none", userSelect:"none", ...extra,
+  width:"100%", pointerEvents:"none", userSelect:"none", ...extra,
 });
 
 const MemeRender = ({ meme, maxH }) => (
@@ -95,7 +95,7 @@ const MemeRender = ({ meme, maxH }) => (
         onError={e=>{ e.target.style.minHeight="100px"; e.target.style.background="#1a1a1a"; }} />
     )}
     {(meme.texts||[]).map(t=>(
-      <div key={t.id} style={{ position:"absolute", left:`${t.x}%`, top:`${t.y}%`, transform:"translate(-50%,-50%)", pointerEvents:"none", maxWidth:"92%" }}>
+      <div key={t.id} style={{ position:"absolute", left:`${t.x}%`, top:`${t.y}%`, transform:"translate(-50%,-50%)", pointerEvents:"none", width:`${t.width||60}%` }}>
         <span style={txtStyle(t)}>{t.text}</span>
       </div>
     ))}
@@ -388,6 +388,21 @@ export default function App() {
     window.addEventListener("pointerup", up);
   };
 
+  const startResize = (e, textId, handle) => {
+    e.preventDefault(); e.stopPropagation();
+    const txt = crTexts.find(t => t.id === textId); if (!txt || !imgRef.current) return;
+    const startCX = e.clientX; const startW = txt.width || 60;
+    const move = ev => {
+      const r = imgRef.current.getBoundingClientRect();
+      const dx = ((ev.clientX - startCX) / r.width) * 100;
+      const newW = handle === 'right' ? clamp(startW + dx*2, 10, 95) : clamp(startW - dx*2, 10, 95);
+      setCrTexts(p => p.map(t => t.id === textId ? { ...t, width: Math.round(newW) } : t));
+    };
+    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   const addText = () => setCrTexts(p => [...p, mkTxt("NOUVEAU TEXTE", 50, 50)]);
   const delText = id => { setCrTexts(p => p.filter(t => t.id !== id)); if (selectedTxt===id) setSelectedTxt(null); };
   const updText = (id, key, val) => setCrTexts(p => p.map(t => t.id===id ? {...t,[key]:val} : t));
@@ -589,9 +604,23 @@ export default function App() {
                   onPointerDown={e=>{ if(e.target===imgRef.current||e.target.tagName==="IMG") setSelectedTxt(null); }}>
                   {!isBg(crImageUrl) && <img src={crImageUrl} alt="template" style={{ width:"100%", display:"block", pointerEvents:"none" }} />}
                   {crTexts.map(t => (
-                    <div key={t.id} style={{ position:"absolute", left:`${t.x}%`, top:`${t.y}%`, transform:"translate(-50%,-50%)", cursor:"grab", padding:4, outline:selectedTxt===t.id?`2px dashed ${AC}`:"2px dashed transparent", borderRadius:3, maxWidth:"90%" }}
+                    <div key={t.id} style={{ position:"absolute", left:`${t.x}%`, top:`${t.y}%`, transform:"translate(-50%,-50%)", width:`${t.width||60}%`, cursor:"grab", outline:selectedTxt===t.id?`2px dashed ${AC}`:"2px dashed transparent", borderRadius:3, padding:"2px 0" }}
                       onPointerDown={e=>startDrag(e,t.id)} onClick={e=>{ e.stopPropagation(); setSelectedTxt(t.id); }}>
                       <span style={txtStyle(t)}>{t.text||"..."}</span>
+                      {selectedTxt===t.id && (<>
+                        {/* Poignée gauche */}
+                        <div style={{ position:"absolute", left:-6, top:"50%", transform:"translateY(-50%)", width:12, height:28, background:AC, borderRadius:3, cursor:"ew-resize", display:"flex", alignItems:"center", justifyContent:"center", zIndex:10 }}
+                          onPointerDown={e=>{ e.stopPropagation(); startResize(e,t.id,"left"); }}>
+                          <div style={{ width:2, height:14, background:"#080808", borderRadius:1, marginRight:2 }} />
+                          <div style={{ width:2, height:14, background:"#080808", borderRadius:1 }} />
+                        </div>
+                        {/* Poignée droite */}
+                        <div style={{ position:"absolute", right:-6, top:"50%", transform:"translateY(-50%)", width:12, height:28, background:AC, borderRadius:3, cursor:"ew-resize", display:"flex", alignItems:"center", justifyContent:"center", zIndex:10 }}
+                          onPointerDown={e=>{ e.stopPropagation(); startResize(e,t.id,"right"); }}>
+                          <div style={{ width:2, height:14, background:"#080808", borderRadius:1, marginRight:2 }} />
+                          <div style={{ width:2, height:14, background:"#080808", borderRadius:1 }} />
+                        </div>
+                      </>)}
                     </div>
                   ))}
                 </div>
@@ -611,6 +640,11 @@ export default function App() {
                     <input style={{ ...S.inp, marginBottom:6, fontFamily:"Impact,sans-serif", textTransform:"uppercase" }}
                       value={t.text} onChange={e=>updText(t.id,"text",e.target.value)} onClick={e=>e.stopPropagation()} placeholder="TEXTE…" />
                     {selectedTxt===t.id && (<>
+                      <div style={{ display:"flex", gap:6, alignItems:"center", marginBottom:6 }}>
+                        <label style={{ ...S.lbl, margin:0 }}>LARGEUR:</label>
+                        <input type="range" min={15} max={95} value={t.width||60} style={{ flex:1, accentColor:AC }} onChange={e=>updText(t.id,"width",+e.target.value)} />
+                        <span style={{ fontSize:11, color:AC, minWidth:28 }}>{t.width||60}%</span>
+                      </div>
                       <div style={{ display:"flex", gap:6, alignItems:"center", marginBottom:6 }}>
                         <label style={{ ...S.lbl, margin:0 }}>TAILLE:</label>
                         <input type="range" min={14} max={72} value={t.fontSize} style={{ flex:1, accentColor:AC }} onChange={e=>updText(t.id,"fontSize",+e.target.value)} />
