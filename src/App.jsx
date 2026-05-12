@@ -38,7 +38,7 @@ const normMeme = r => ({
 });
 const normComment = r => ({
   id: r.id, memeId: r.meme_id, author: r.author,
-  text: r.text, likes: r.likes || 0,
+  text: r.text, likes: r.likes || 0, parentId: r.parent_id || null,
   timestamp: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
 });
 
@@ -124,6 +124,10 @@ export default function App() {
   const [editComment, setEditComment] = useState(null);
   const [editCommentText, setEditCommentText] = useState('');
   const [allUsers, setAllUsers] = useState([]);
+  const [favorites, setFavorites] = useState([]);
+  const [profileTab, setProfileTab] = useState('memes');
+  const [replyTo, setReplyTo] = useState(null); // { id, author }
+  const [mentionSuggestions, setMentionSuggestions] = useState([]);
 
   const [username, setUsername] = useState(() => localStorage.getItem("mh_user") || null);
   const [view, setView]         = useState("feed");
@@ -175,13 +179,11 @@ export default function App() {
         setCmts(grouped);
       }
       if (username) {
-        const [rawVotes, rawCVotes, rawFollows, rawUser] = await Promise.all([
+        const [rawVotes, rawCVotes, rawFollows] = await Promise.all([
           db.getVotesByUser(username),
           db.getCommentVotesByUser(username),
           db.getFollowsByUser(username),
-          db.getUserByName(username),
-      ]);
-    if (rawUser && rawUser.length > 0) setIsAdmin(rawUser[0].is_admin === true);
+        ]);
         if (rawVotes) {
           const v = {};
           rawVotes.forEach(r => { v[r.meme_id] = r.direction; });
@@ -193,6 +195,8 @@ export default function App() {
           setCVotes(cv);
         }
         if (rawFollows) setFollows(rawFollows.map(r => r.followed));
+        const rawFavs = await db.getFavorites(username);
+        if (rawFavs) setFavorites(rawFavs.map(r => r.meme_id));
       }
       setLoading(false);
     })();
@@ -286,10 +290,24 @@ export default function App() {
   const postComment = async () => {
     if (needAuth("comment")) return;
     if (!commentText.trim() || !detailMeme) return;
-    const nc = { id: uid(), memeId: detailMeme.id, author: username, text: commentText.trim(), likes: 0, timestamp: Date.now() };
+    const nc = { id: uid(), memeId: detailMeme.id, author: username, text: commentText.trim(), likes: 0, parentId: replyTo?.id || null, timestamp: Date.now() };
     setCmts(p => ({ ...p, [detailMeme.id]: [...(p[detailMeme.id]||[]), nc] }));
     setCommentText("");
+    setReplyTo(null);
+    setMentionSuggestions([]);
     await db.insertComment(nc);
+  };
+
+  const handleCommentInput = (val) => {
+    setCommentText(val);
+    const match = val.match(/@(\w*)$/);
+    if (match) {
+      const q = match[1].toLowerCase();
+      const authors = [...new Set(memes.map(m => m.author))];
+      setMentionSuggestions(q ? authors.filter(a => a.toLowerCase().startsWith(q) && a !== username) : []);
+    } else {
+      setMentionSuggestions([]);
+    }
   };
 
   const voteComment = async (mId, cId) => {
@@ -311,6 +329,16 @@ export default function App() {
     const reader = new FileReader();
     reader.onload = ev => { setCrImageUrl(ev.target.result); setCrCustomUrl(""); setCrUrlBroken(false); };
     reader.readAsDataURL(file);
+  };
+
+  // ── FAVORITES ──
+  const handleFavorite = async (id) => {
+    if (needAuth("favorite")) return;
+    const isFav = favorites.includes(id);
+    setFavorites(p => isFav ? p.filter(f => f !== id) : [...p, id]);
+    showToast(isFav ? "Retiré des favoris" : "Ajouté aux favoris ⭐");
+    if (isFav) await db.deleteFavorite(username, id);
+    else await db.insertFavorite(username, id);
   };
 
   // ── DELETE MEME ──
@@ -425,8 +453,12 @@ export default function App() {
             <div style={{ display:"flex", alignItems:"center" }}>
               <VoteBar m={m} sp />
               <span style={{ fontSize:11, color:"#444", marginLeft:"auto" }}>💬 {(comments[m.id]||[]).length}</span>
+              {username && (
+                <button style={{ background:"transparent", border:"none", fontSize:14, cursor:"pointer", marginLeft:4, color: favorites.includes(m.id) ? "#ffcc00" : "#444" }}
+                  onClick={e=>{ e.stopPropagation(); handleFavorite(m.id); }}>{favorites.includes(m.id)?"⭐":"☆"}</button>
+              )}
               {m.author === username && (
-                <button style={{ background:"transparent", border:"none", color:"#c03030", fontSize:14, cursor:"pointer", marginLeft:8 }}
+                <button style={{ background:"transparent", border:"none", color:"#c03030", fontSize:14, cursor:"pointer", marginLeft:4 }}
                   onClick={e=>{ e.stopPropagation(); deleteMeme(m.id); }}>🗑️</button>
               )}
             </div>
@@ -641,13 +673,19 @@ export default function App() {
               </div>
             </div>
           )}
-          <div style={{ padding:"10px 14px 0" }}><div style={S.lbl}>MES MÈMES ({myMemes.length})</div></div>
-          {!myMemes.length
-            ? <div style={{ textAlign:"center", padding:"3rem 1rem", color:"#2a2a2a" }}>
-                <div style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:18, marginBottom:16 }}>Aucun mème posté</div>
-                <button style={{ ...S.bigBtn(false), maxWidth:220, margin:"0 auto" }} onClick={()=>setView("creator")}>CRÉER MON PREMIER MÈME</button>
-              </div>
-            : <CardGrid list={myMemes} />}
+          <div style={{ display:"flex", gap:6, padding:"10px 14px 0" }}>
+            <button style={{ ...S.tab(profileTab!=="favs"), fontSize:13 }} onClick={()=>setProfileTab("memes")}>MES MÈMES ({myMemes.length})</button>
+            <button style={{ ...S.tab(profileTab==="favs"), fontSize:13 }} onClick={()=>setProfileTab("favs")}>⭐ FAVORIS ({favorites.length})</button>
+          </div>
+          {profileTab === "favs"
+            ? <CardGrid list={memes.filter(m=>favorites.includes(m.id))} empty="Aucun favori pour l'instant ⭐" />
+            : (!myMemes.length
+              ? <div style={{ textAlign:"center", padding:"3rem 1rem", color:"#2a2a2a" }}>
+                  <div style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:18, marginBottom:16 }}>Aucun mème posté</div>
+                  <button style={{ ...S.bigBtn(false), maxWidth:220, margin:"0 auto" }} onClick={()=>setView("creator")}>CRÉER MON PREMIER MÈME</button>
+                </div>
+              : <CardGrid list={myMemes} />)
+          }
         </>);
       })()}
 
@@ -836,6 +874,10 @@ export default function App() {
                 <p style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:19, color:"#f0f0f0", marginBottom:10 }}>{m.title}</p>
                 <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
                   <VoteBar m={m} />
+                  {username && (
+                    <button style={{ background:"transparent", border:"none", fontSize:18, cursor:"pointer", color: favorites.includes(m.id)?"#ffcc00":"#333" }}
+                      onClick={()=>handleFavorite(m.id)}>{favorites.includes(m.id)?"⭐":"☆"}</button>
+                  )}
                   <div style={{ marginLeft:"auto", display:"flex", gap:4, flexWrap:"wrap" }}>
                     {m.tags?.map(t=><span key={t} style={{ background:"#161616", border:"1px solid #222", borderRadius:3, padding:"1px 5px", fontSize:10, color:"#555" }}>#{t}</span>)}
                   </div>
@@ -844,25 +886,73 @@ export default function App() {
               <div style={{ padding:"12px 14px" }}>
                 <div style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:14, color:AC, letterSpacing:1, marginBottom:10 }}>COMMENTAIRES ({mCmts.length})</div>
                 {username
-                  ? <div style={{ display:"flex", gap:8, marginBottom:12 }}>
-                      <textarea style={{ ...S.inp, resize:"none", height:50, lineHeight:1.5 }} placeholder="Ton commentaire…" value={commentText}
-                        onChange={e=>setCommentText(e.target.value)}
-                        onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); postComment(); } }} />
-                      <button style={{ background:AC, border:"none", borderRadius:6, color:"#080808", fontFamily:"'Bebas Neue',sans-serif", fontSize:14, padding:"8px 14px", cursor:"pointer", flexShrink:0 }} onClick={postComment}>OK</button>
+                  ? <div style={{ marginBottom:12 }}>
+                      {replyTo && (
+                        <div style={{ background:"#0a0a0a", border:"1px solid #1e1e1e", borderRadius:5, padding:"5px 10px", fontSize:11, color:"#555", marginBottom:6, display:"flex", justifyContent:"space-between" }}>
+                          <span>↩ Réponse à <span style={{ color:AC }}>@{replyTo.author}</span></span>
+                          <button style={{ background:"transparent", border:"none", color:"#444", cursor:"pointer", fontSize:12 }} onClick={()=>{ setReplyTo(null); setCommentText(""); }}>✕</button>
+                        </div>
+                      )}
+                      <div style={{ position:"relative" }}>
+                        {mentionSuggestions.length > 0 && (
+                          <div style={{ position:"absolute", bottom:"100%", left:0, right:0, background:"#111", border:"1px solid #222", borderRadius:5, marginBottom:4, zIndex:10 }}>
+                            {mentionSuggestions.slice(0,5).map(u=>(
+                              <div key={u} style={{ padding:"6px 10px", fontSize:12, color:"#ccc", cursor:"pointer" }}
+                                onClick={()=>{ setCommentText(commentText.replace(/@\w*$/, `@${u} `)); setMentionSuggestions([]); }}>
+                                @{u}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div style={{ display:"flex", gap:8 }}>
+                          <textarea style={{ ...S.inp, resize:"none", height:50, lineHeight:1.5 }} placeholder="Ton commentaire… (tape @ pour mentionner)" value={commentText}
+                            onChange={e=>handleCommentInput(e.target.value)}
+                            onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); postComment(); } }} />
+                          <button style={{ background:AC, border:"none", borderRadius:6, color:"#080808", fontFamily:"'Bebas Neue',sans-serif", fontSize:14, padding:"8px 14px", cursor:"pointer", flexShrink:0 }} onClick={postComment}>OK</button>
+                        </div>
+                      </div>
                     </div>
                   : <div style={{ fontSize:12, color:"#444", marginBottom:12, cursor:"pointer" }} onClick={()=>{ setDetailMeme(null); setAuthGate("comment"); setAuthStep("choose"); }}>→ Connecte-toi pour commenter</div>
                 }
-                <div style={{ display:"flex", flexDirection:"column", gap:8, maxHeight:280, overflowY:"auto" }}>
-                  {mCmts.map(c=>(
-                    <div key={c.id} style={{ background:"#111", border:"1px solid #1a1a1a", borderRadius:6, padding:"8px 10px" }}>
-                      <div style={{ display:"flex", alignItems:"center", marginBottom:4 }}>
-                        <span style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:12, color:AC, cursor:"pointer" }}
-                          onClick={()=>{ setViewUser(c.author); setView("userpage"); setDetailMeme(null); }}>@{c.author}</span>
-                        <span style={{ fontSize:10, color:"#333", marginLeft:8 }}>{timeAgo(c.timestamp)}</span>
-                        <button style={{ marginLeft:"auto", background:"transparent", border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:11, color:cVotes[c.id]?AC:"#444" }}
-                          onClick={()=>voteComment(m.id,c.id)}>▲ {c.likes}</button>
+                <div style={{ display:"flex", flexDirection:"column", gap:8, maxHeight:320, overflowY:"auto" }}>
+                  {mCmts.filter(c=>!c.parentId).map(c=>(
+                    <div key={c.id}>
+                      <div style={{ background:"#111", border:"1px solid #1a1a1a", borderRadius:6, padding:"8px 10px" }}>
+                        <div style={{ display:"flex", alignItems:"center", marginBottom:4 }}>
+                          <span style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:12, color:AC, cursor:"pointer" }}
+                            onClick={()=>{ setViewUser(c.author); setView("userpage"); setDetailMeme(null); }}>@{c.author}</span>
+                          <span style={{ fontSize:10, color:"#333", marginLeft:8 }}>{timeAgo(c.timestamp)}</span>
+                          <div style={{ marginLeft:"auto", display:"flex", gap:6, alignItems:"center" }}>
+                            <button style={{ background:"transparent", border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:11, color:cVotes[c.id]?AC:"#444" }}
+                              onClick={()=>voteComment(m.id,c.id)}>▲ {c.likes}</button>
+                            {username && <button style={{ background:"transparent", border:"none", cursor:"pointer", fontSize:10, color:"#444" }}
+                              onClick={()=>{ setReplyTo({id:c.id,author:c.author}); setCommentText(`@${c.author} `); }}>↩ Répondre</button>}
+                          </div>
+                        </div>
+                        <p style={{ margin:0, fontSize:13, color:"#ccc", lineHeight:1.5 }}>{c.text.split(/(@\w+)/).map((part,i)=>
+                          part.startsWith("@")
+                            ? <span key={i} style={{ color:AC, cursor:"pointer" }} onClick={()=>{ setViewUser(part.slice(1)); setView("userpage"); setDetailMeme(null); }}>{part}</span>
+                            : part
+                        )}</p>
                       </div>
-                      <p style={{ margin:0, fontSize:13, color:"#ccc", lineHeight:1.5 }}>{c.text}</p>
+                      {/* Réponses imbriquées */}
+                      {mCmts.filter(r=>r.parentId===c.id).map(r=>(
+                        <div key={r.id} style={{ background:"#0d0d0d", border:"1px solid #161616", borderRadius:6, padding:"7px 10px", marginTop:4, marginLeft:16 }}>
+                          <div style={{ display:"flex", alignItems:"center", marginBottom:3 }}>
+                            <span style={{ fontSize:10, color:"#555", marginRight:4 }}>↩</span>
+                            <span style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:11, color:AC, cursor:"pointer" }}
+                              onClick={()=>{ setViewUser(r.author); setView("userpage"); setDetailMeme(null); }}>@{r.author}</span>
+                            <span style={{ fontSize:10, color:"#333", marginLeft:8 }}>{timeAgo(r.timestamp)}</span>
+                            <button style={{ marginLeft:"auto", background:"transparent", border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:11, color:cVotes[r.id]?AC:"#444" }}
+                              onClick={()=>voteComment(m.id,r.id)}>▲ {r.likes}</button>
+                          </div>
+                          <p style={{ margin:0, fontSize:12, color:"#bbb", lineHeight:1.5 }}>{r.text.split(/(@\w+)/).map((part,i)=>
+                            part.startsWith("@")
+                              ? <span key={i} style={{ color:AC, cursor:"pointer" }} onClick={()=>{ setViewUser(part.slice(1)); setView("userpage"); setDetailMeme(null); }}>{part}</span>
+                              : part
+                          )}</p>
+                        </div>
+                      ))}
                     </div>
                   ))}
                   {!mCmts.length && <div style={{ textAlign:"center", color:"#2a2a2a", padding:"1.5rem", fontSize:12 }}>Sois le premier à commenter !</div>}
