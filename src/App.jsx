@@ -179,11 +179,13 @@ export default function App() {
         setCmts(grouped);
       }
       if (username) {
-        const [rawVotes, rawCVotes, rawFollows] = await Promise.all([
+        const [rawVotes, rawCVotes, rawFollows, rawUser] = await Promise.all([
           db.getVotesByUser(username),
           db.getCommentVotesByUser(username),
           db.getFollowsByUser(username),
+          db.getUserByName(username),
         ]);
+        if (rawUser && rawUser.length > 0) setIsAdmin(rawUser[0].is_admin === true);
         if (rawVotes) {
           const v = {};
           rawVotes.forEach(r => { v[r.meme_id] = r.direction; });
