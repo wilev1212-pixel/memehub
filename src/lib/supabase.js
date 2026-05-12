@@ -39,6 +39,9 @@ const api = async (path, options = {}) => {
 export const getMemes = () =>
   api("/memes?select=*&order=created_at.desc");
 
+export const getMemesSince = (isoDate) =>
+  api(`/memes?select=*&created_at=gt.${encodeURIComponent(isoDate)}&order=created_at.desc`);
+
 export const insertMeme = (meme) =>
   api("/memes", {
     method: "POST",
