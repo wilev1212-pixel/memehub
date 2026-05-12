@@ -139,6 +139,7 @@ export default function App() {
   const [detailMeme, setDetailMeme] = useState(null);
   const [commentText, setCommentText] = useState("");
   const [toast, setToast] = useState(null);
+  const [pendingMemes, setPendingMemes] = useState([]); // nouveaux mèmes en attente
 
   const [authGate, setAuthGate]     = useState(null);
   const [authInput, setAuthInput]   = useState("");
@@ -203,6 +204,32 @@ export default function App() {
       setLoading(false);
     })();
   }, [username]);
+
+  // ── POLLING temps réel (30s) ──────────────────────────────
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      setMemes(current => {
+        if (!current.length) return current;
+        const latest = current.reduce((a, b) =>
+          new Date(a.created_at||a.timestamp) > new Date(b.created_at||b.timestamp) ? a : b
+        );
+        const since = latest.created_at || new Date(latest.timestamp).toISOString();
+        db.getMemesSince(since).then(raw => {
+          if (raw && raw.length > 0) {
+            const newOnes = raw.map(normMeme).filter(m => !current.find(e => e.id === m.id));
+            if (newOnes.length > 0) setPendingMemes(p => [...newOnes, ...p]);
+          }
+        });
+        return current;
+      });
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const loadPending = () => {
+    setMemes(p => [...pendingMemes, ...p]);
+    setPendingMemes([]);
+  };
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2500); };
   const needAuth = (action) => { if (!username) { setAuthGate(action); setAuthStep("choose"); return true; } return false; };
@@ -525,6 +552,14 @@ export default function App() {
             {feedFilter==="following"?"👥 ABONNEMENTS":"👥 TOUS"}
           </button>
         </div>
+        {pendingMemes.length > 0 && (
+          <div style={{ margin:"8px 14px 0", background:AC, borderRadius:6, padding:"10px 16px", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}
+            onClick={loadPending}>
+            <span style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:16, color:"#080808", letterSpacing:1 }}>
+              ↑ {pendingMemes.length} nouveau{pendingMemes.length > 1 ? "x" : ""} mème{pendingMemes.length > 1 ? "s" : ""} — cliquer pour charger
+            </span>
+          </div>
+        )}
         {searchMode==="users" && filteredUsers.length>0 && (
           <div style={{ padding:"10px 14px" }}>
             <div style={{ ...S.lbl, marginBottom:8 }}>CRÉATEURS TROUVÉS</div>
